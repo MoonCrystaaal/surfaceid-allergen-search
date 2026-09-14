@@ -1,0 +1,108 @@
+diff --git a/main.py b/main.py
+index 18580ea..7bec4b2 100644
+--- a/main.py
++++ b/main.py
+@@ -68,7 +68,7 @@ if device == 'cpu':
+ elif torch.cuda.is_available():
+     device = torch.cuda.current_device()
+ 
+-if conf.SEARCH or conf.DESC or conf.ALIGN:
++if conf.DESC or conf.ALIGN or (conf.SEARCH and not conf.REUSE_PRECOMPUTED):
+     path = os.path.join(conf.savedir, f"model_{conf.prefix}.pth")
+     model = Model(**conf.params)
+     model = model.to(device)
+@@ -142,6 +142,26 @@ elif conf.RESTRICT:
+                          conf.contact_thres2,
+                              device,x,
+                          smooth=False)
++elif mix_region and conf.REUSE_PRECOMPUTED:
++    if not conf.SEARCH:
++        raise RuntimeError("REUSE_PRECOMPUTED is only supported for SEARCH")
++    required_aux = []
++    for _, row in df.iterrows():
++        surface = row['Ab']
++        required_aux.extend([
++            os.path.join(conf.OUTDIR, f"{surface}_surface.npz"),
++            os.path.join(conf.OUTDIR, f"{surface}_contacts.{surface}.npy"),
++            os.path.join(conf.OUTDIR, f"{surface}_within.{surface}.npy"),
++        ])
++    missing_aux = [path for path in required_aux if not os.path.isfile(path)]
++    if missing_aux:
++        raise FileNotFoundError(
++            "Precomputed search data are incomplete; first missing file: " + missing_aux[0]
++        )
++    logger.info(
++        "Reusing precomputed descriptors and contacts/within arrays for %d surfaces",
++        len(df),
++    )
+ elif mix_region:
+     # c: contact,contact pairs in consequetive rows, selects upper row for search)
+     #R:read xyz
+@@ -241,8 +261,35 @@ if conf.SEARCH:
+         target_,p2 = target.split(".")
+         idxs_contact = np.load(os.path.join(conf.OUTDIR, f"{target_}_contacts.{p2}.npy"))
+         st_target = time()
+-        o1, p1 = get_whole_molecule_desc(
+-            target_, model, conf.params.get("rho_max"), bs=128, device=device, outdir=conf.OUTDIR)
++        if conf.REUSE_PRECOMPUTED:
++            o1, target_vertex_indices = get_fs(target, pdbs, x_desc, idxs_desc)
++            surface_path = os.path.join(conf.OUTDIR, f"{target_}_surface.npz")
++            with np.load(surface_path) as surface_data:
++                rho = surface_data["rho"]
++                list_indices = surface_data["list_indices"]
++                vertex_count = len(surface_data["pos"])
++            expected_indices = np.arange(vertex_count, dtype=target_vertex_indices.dtype)
++            if len(o1) != vertex_count or not np.array_equal(target_vertex_indices, expected_indices):
++                raise RuntimeError(
++                    f"Cached descriptor/mesh mismatch for {target}: "
++                    f"descriptors={len(o1)}, vertices={vertex_count}"
++                )
++            within_path = os.path.join(conf.OUTDIR, f"{target_}_within.{p2}.npy")
++            within = np.load(within_path)
++            if within.shape[0] != vertex_count:
++                raise RuntimeError(
++                    f"Cached within/mesh mismatch for {target}: "
++                    f"within={within.shape[0]}, vertices={vertex_count}"
++                )
++            logger.info("Loaded cached query descriptor and within array for %s", target)
++        else:
++            o1, p1 = get_whole_molecule_desc(
++                target_, model, conf.params.get("rho_max"), bs=128, device=device, outdir=conf.OUTDIR)
++            rho = p1.rho.cpu().numpy()
++            list_indices = p1.list_indices.cpu().numpy()
++            within = get_within(rho,
++                            list_indices,
++                            conf.neighbor_dist)
+         o1 = torch.tensor(o1).to(device).view(len(o1), 1, DIM)
+         if len(o1) > 20000:
+             logger.info(" skip", target)
+@@ -250,14 +297,6 @@ if conf.SEARCH:
+         
+ 
+         mini_bs = int(64 * 1000 / len(o1))
+-        rho = p1.rho.cpu().numpy()
+-        list_indices = p1.list_indices.cpu().numpy()
+-
+-        # Get inclusion matrix
+-        within = get_within(rho, 
+-                        list_indices, 
+-                        conf.neighbor_dist)
+-    
+         logger.info(f" Searching for target {target_}")
+         summary.extend(search(o1, rho, list_indices, within, library, library_within, pdbs_unique, patch_sizes,
+                           pdbs, x_desc, idxs_desc, mini_bs, device, conf.nmin_pts, conf.expand_radius, conf.nmin_pts_library,
+diff --git a/src/masif2npz.py b/src/masif2npz.py
+old mode 100755
+new mode 100644
+diff --git a/src/util/Config.py b/src/util/Config.py
+index e245b62..188e523 100644
+--- a/src/util/Config.py
++++ b/src/util/Config.py
+@@ -8,6 +8,7 @@ class Config:
+         self.RESTRICT = self.config.get('RESTRICT')
+         self.SEARCH = self.config.get('SEARCH')
+         self.ALIGN = self.config.get('ALIGN')
++        self.REUSE_PRECOMPUTED = self.config.get('REUSE_PRECOMPUTED', False)
+         self.SAVEPLY = self.config.get('SAVEPLY')
+         self.HEATMAP = self.config.get('HEATMAP')
+         self.REMOVE_OLD = self.ALIGN and self.SAVEPLY and self.SEARCH

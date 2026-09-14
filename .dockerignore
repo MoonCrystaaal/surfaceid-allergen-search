@@ -1,0 +1,14 @@
+# Keep the build context limited to source and Docker files
+.git
+**/.git
+work
+input
+outputs
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.backup*
+source/LMR-SurfaceID/docs

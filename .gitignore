@@ -1,0 +1,50 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+# Credentials are local; examples may be committed
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+*credentials*.json
+secrets.json
+.aws/
+.ssh/
+# Editors and temporary files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+~$*
+*.swp
+*.tmp
+*.part
+*.log
+*.backup-*
+*.backup*
+backups/
+# Separate upstream checkout: preserved locally, reconstructed using patches/
+/source/LMR-SurfaceID/
+# Large generated meshes, descriptors, search results and cache
+/work/
+/outputs/
+/input/**/*.pdb
+/input/**/*.cif
+/input/**/*.npz
+/input/**/*.npy
+/input/**/*.ply
+/input/**/*.pth
